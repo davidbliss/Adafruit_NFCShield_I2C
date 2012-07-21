@@ -19,6 +19,9 @@
 
 	@section  HISTORY
 
+    v1.4d - David's modifications 
+         - Added powerDown command
+
     v1.3 - Modified to work with I2C
 	
     v1.2 - Added writeGPIO()
@@ -36,6 +39,7 @@
              uint8_t mifareclassic_WriteDataBlock (uint8_t blockNumber, uint8_t * data)
          - Added the following Mifare Ultalight functions:
              uint8_t mifareultralight_ReadPage (uint8_t page, uint8_t * buffer)	
+
 */
 /**************************************************************************/
 #if ARDUINO >= 100
@@ -421,7 +425,7 @@ boolean Adafruit_NFCShield_I2C::readPassiveTargetID(uint8_t cardbaudrate, uint8_
 	#endif
     return 0x0;  // no cards read
   }
-  
+ 
   // Wait for a card to enter the field
   uint8_t status = PN532_I2C_BUSY;
   #ifdef PN532DEBUG
@@ -481,8 +485,22 @@ boolean Adafruit_NFCShield_I2C::readPassiveTargetID(uint8_t cardbaudrate, uint8_
 #ifdef MIFAREDEBUG
     Serial.println();
 #endif
-
+  
   return 1;
+}
+
+boolean Adafruit_NFCShield_I2C::powerDown(uint32_t uiBlock) {
+ 
+  pn532_packetbuffer[0] = PN532_COMMAND_POWERDOWN;
+  pn532_packetbuffer[1] = 76543210;  // I2C will wake up
+  if (sendCommandCheckAck(pn532_packetbuffer, 2)){
+#ifdef MIFAREDEBUG
+    Serial.println("powered down");
+#endif
+    return 1;
+  }
+
+  return 0;
 }
 
 

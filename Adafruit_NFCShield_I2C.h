@@ -160,6 +160,7 @@ class Adafruit_NFCShield_I2C{
   
   // ISO14443A functions
   boolean readPassiveTargetID(uint8_t cardbaudrate, uint8_t * uid, uint8_t * uidLength);
+  boolean powerDown(uint32_t uiBlock);
   
   // Mifare Classic functions
   bool mifareclassic_IsFirstBlock (uint32_t uiBlock);

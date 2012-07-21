@@ -38,7 +38,7 @@ Adafruit_NFCShield_I2C nfc(IRQ, RESET);
     prefixes! 
 */
 // For a http://www. url:
-const char * url = "adafruit.com";
+const char * url = "davidbliss.com";
 uint8_t ndefprefix = NDEF_URIPREFIX_HTTP_WWWDOT;
 
 // for an email address
@@ -169,4 +169,16 @@ void loop(void) {
   
   // Wait a bit before trying again
   Serial.println("\n\nDone!");
+  
+  // if you have a tag on the reader, then write a new NDEF value to it,
+  // you can't read it with another reader while it is still on the reader unless you power the reader down
+  success = nfc.powerDown(PN532_MIFARE_ISO14443A);
+  if (success)
+   {
+     Serial.println("reader powered down");
+   }
+   else
+   {
+     Serial.println("power down failed! :(");
+   }
 }
