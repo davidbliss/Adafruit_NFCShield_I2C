@@ -492,7 +492,7 @@ boolean Adafruit_NFCShield_I2C::readPassiveTargetID(uint8_t cardbaudrate, uint8_
 boolean Adafruit_NFCShield_I2C::powerDown(uint32_t uiBlock) {
  
   pn532_packetbuffer[0] = PN532_COMMAND_POWERDOWN;
-  pn532_packetbuffer[1] = 76543210;  // I2C will wake up
+  pn532_packetbuffer[1] = (0xFF);  // I2C will wake up
   if (sendCommandCheckAck(pn532_packetbuffer, 2)){
 #ifdef MIFAREDEBUG
     Serial.println("powered down");
