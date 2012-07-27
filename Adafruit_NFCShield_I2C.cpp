@@ -697,6 +697,42 @@ uint8_t Adafruit_NFCShield_I2C::mifareclassic_WriteDataBlock (uint8_t blockNumbe
 
   return 1;  
 }
+uint8_t Adafruit_NFCShield_I2C::mifareclassic_WriteDataBlock_Authenticated (uint8_t blockNumber, uint8_t * data, uint8_t *keya, uint8_t *uid, uint8_t uidLength){
+    //standard auth
+    Serial.println("Authenticating block for writing..");
+    uint8_t success = mifareclassic_AuthenticateBlock (uid, uidLength, blockNumber, 0, keya);
+    if (!success){
+        Serial.println("Authentication failed.");
+        return 0;
+    }
+#ifdef MIFAREDEBUG
+    Serial.print("Trying to write 16 bytes to block ");Serial.println(blockNumber);
+#endif
+    
+    /* Prepare the first command */
+    pn532_packetbuffer[0] = PN532_COMMAND_INDATAEXCHANGE;
+    pn532_packetbuffer[1] = 1;                      /* Card number */
+    pn532_packetbuffer[2] = MIFARE_CMD_WRITE;       /* Mifare Write command = 0xA0 */
+    pn532_packetbuffer[3] = blockNumber;            /* Block Number (0..63 for 1K, 0..255 for 4K) */
+    memcpy (pn532_packetbuffer+4, data, 16);          /* Data Payload */
+    
+    /* Send the command */
+    if (! sendCommandCheckAck(pn532_packetbuffer, 20))
+    {
+#ifdef MIFAREDEBUG
+        Serial.println("Failed to receive ACK for write command");
+#endif
+        return 0;
+    }
+    delay(10);
+    
+    /* Read the response packet */
+    wirereaddata(pn532_packetbuffer, 26);
+    
+    return 1;  
+}
+
+
 
 /**************************************************************************/
 /*! 
@@ -808,6 +844,92 @@ uint8_t Adafruit_NFCShield_I2C::mifareclassic_WriteNDEFURI (uint8_t sectorNumber
   // Seems that everything was OK (?!)
   return 1;
 }
+uint8_t Adafruit_NFCShield_I2C::mifareclassic_WriteNDEFURI_Long (uint8_t uriIdentifier, const char * url, uint8_t *keya, uint8_t *uid, uint8_t uidLength)
+{
+    // Figure out how long the string is
+    uint8_t len = strlen(url);
+    
+    //counting vars
+    uint8_t url_position = 0;
+    uint8_t block_count = 4;
+    uint8_t byte_count = 9; // starts at byte 9 after the header info
+    
+    uint8_t zero[16] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    uint8_t foot[16] = {0xD3, 0xF7, 0xD3, 0xF7, 0xD3, 0xF7, 0x7F, 0x07, 0x88, 0x40, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+    
+    // Setup the sector buffer (w/pre-formatted TLV wrapper and NDEF message)
+    uint8_t block_buffer[16] = {0x00, 0x00, 0x03, len+5, 0xD1, 0x01, len+1, 0x55, uriIdentifier, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    
+    
+    //while strlen(url) >0 pull digits out and copy them into the array
+    while (url_position < len){
+        if (block_count %4 < 3) {
+            //copy url char into buffer position
+            memcpy (block_buffer+byte_count, url+url_position, 1);
+            
+            byte_count ++;
+            url_position ++;
+            
+            if (byte_count == 16 ) {
+                //end of block
+                byte_count = 0;
+                
+                // write block
+                if (!(mifareclassic_WriteDataBlock_Authenticated (block_count, block_buffer, keya, uid, uidLength)))
+                    return 0;
+                
+                //reset
+                memcpy(block_buffer, zero, 16);
+                block_count ++;
+            }
+            
+        }else if (block_count %4 == 3) {
+            //close sector with footer block
+            memcpy(block_buffer, foot, 16);
+            if (!(mifareclassic_WriteDataBlock_Authenticated (block_count, block_buffer, keya, uid, uidLength)))
+                return 0;
+            block_count ++;
+            byte_count = 0;
+        }
+        
+    }
+    
+    //edge case if terminating char needs go into the first byte of a new sector
+    if (byte_count == 0 && block_count %4 == 0) {
+        //write footer block
+        memcpy(block_buffer, foot, 16);
+        if (!(mifareclassic_WriteDataBlock_Authenticated (block_count, block_buffer, keya, uid, uidLength)))
+            return 0;
+        block_count ++;
+        byte_count = 0;
+        memcpy(block_buffer, zero, 16);
+    }
+    
+    //write terminating char
+    
+    block_buffer[byte_count] = 0xFE;
+    //write last block
+    if (!(mifareclassic_WriteDataBlock_Authenticated (block_count, block_buffer, keya, uid, uidLength)))
+        return 0;
+    block_count ++;
+
+    
+    //fill any empty blocks in the sector
+    while (block_count %4 < 3) {
+        memcpy(block_buffer, zero, 16);
+        if (!(mifareclassic_WriteDataBlock_Authenticated (block_count, block_buffer, keya, uid, uidLength)))
+            return 0;
+        block_count ++;
+    }
+    
+    //write final footer block
+     memcpy(block_buffer, foot, 16);
+    if (!(mifareclassic_WriteDataBlock_Authenticated (block_count, block_buffer, keya, uid, uidLength)))
+        return 0;
+    
+    return 1;
+}
+
 
 /***** Mifare Ultralight Functions ******/
 
