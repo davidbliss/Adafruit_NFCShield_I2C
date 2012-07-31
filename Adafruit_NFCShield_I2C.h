@@ -171,7 +171,9 @@ class Adafruit_NFCShield_I2C{
   uint8_t mifareclassic_WriteDataBlock_Authenticated (uint8_t blockNumber, uint8_t * data, uint8_t *keya, uint8_t *uid, uint8_t uidLength);
   uint8_t mifareclassic_FormatNDEF (void);
   uint8_t mifareclassic_WriteNDEFURI (uint8_t sectorNumber, uint8_t uriIdentifier, const char * url);
-  uint8_t mifareclassic_WriteNDEFURI_Long (uint8_t uriIdentifier, const char * url, uint8_t *keya, uint8_t *uid, uint8_t uidLength);
+  uint8_t mifareclassic_WriteNDEFURI_Long (uint8_t uriIdentifier, uint8_t * payload, uint8_t *keya, uint8_t *uid, uint8_t uidLength);
+  uint8_t mifareclassic_WriteNDEFMIME (uint8_t * payload, uint8_t len, uint8_t *keya, uint8_t *uid, uint8_t uidLength);
+  uint8_t mifareclassic_WriteDataPayload (uint8_t * payload, uint8_t len, uint8_t start_block, uint8_t start_byte, uint8_t * payload_head, uint8_t *keya, uint8_t *uid, uint8_t uidLength);
   
   // Mifare Ultralight functions
   uint8_t mifareultralight_ReadPage (uint8_t page, uint8_t * buffer);

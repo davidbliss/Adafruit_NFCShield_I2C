@@ -844,31 +844,59 @@ uint8_t Adafruit_NFCShield_I2C::mifareclassic_WriteNDEFURI (uint8_t sectorNumber
   // Seems that everything was OK (?!)
   return 1;
 }
-uint8_t Adafruit_NFCShield_I2C::mifareclassic_WriteNDEFURI_Long (uint8_t uriIdentifier, const char * url, uint8_t *keya, uint8_t *uid, uint8_t uidLength)
-{
+
+//writes a mimetype payload with the metadata prepended to the payload array and a defined length
+uint8_t Adafruit_NFCShield_I2C::mifareclassic_WriteNDEFMIME (uint8_t * payload, uint8_t len, uint8_t *keya, uint8_t *uid, uint8_t uidLength){
+        
+    //payload header for mime data
+    uint8_t payload_head[16] = {0x00, 0x00, 0x03, len+12, 0xD2, 0x09, len, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+      
+    if(mifareclassic_WriteDataPayload(payload, len, 4, 7, payload_head, keya, uid, uidLength)){
+        return 1;
+    }
+    
+    return 0;
+}
+
+//writes an NDEF URI of any length across sectors
+uint8_t Adafruit_NFCShield_I2C::mifareclassic_WriteNDEFURI_Long (uint8_t uriIdentifier, uint8_t * payload, uint8_t *keya, uint8_t *uid, uint8_t uidLength){
+   
     // Figure out how long the string is
-    uint8_t len = strlen(url);
+    uint8_t len = strlen((char *)payload);
     
-    //counting vars
-    uint8_t url_position = 0;
-    uint8_t block_count = 4;
-    uint8_t byte_count = 9; // starts at byte 9 after the header info
+    // Setup the sector buffer (w/pre-formatted TLV wrapper and NDEF message)
+    uint8_t payload_head[16] = {0x00, 0x00, 0x03, len+5, 0xD1, 0x01, len+1, 0x55, uriIdentifier, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+        
+    if(mifareclassic_WriteDataPayload(payload, len, 4, 9, payload_head, keya, uid, uidLength)){
+        return 1;
+    }
     
+    return 0;
+}
+
+
+uint8_t Adafruit_NFCShield_I2C::mifareclassic_WriteDataPayload (uint8_t *payload, uint8_t len, uint8_t start_block, uint8_t start_byte, uint8_t *payload_head, uint8_t *keya, uint8_t *uid, uint8_t uidLength){
+    
+    //constants
     uint8_t zero[16] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
     uint8_t foot[16] = {0xD3, 0xF7, 0xD3, 0xF7, 0xD3, 0xF7, 0x7F, 0x07, 0x88, 0x40, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
     
-    // Setup the sector buffer (w/pre-formatted TLV wrapper and NDEF message)
-    uint8_t block_buffer[16] = {0x00, 0x00, 0x03, len+5, 0xD1, 0x01, len+1, 0x55, uriIdentifier, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    //counting vars
+    uint8_t position = 0;
+    uint8_t block_count = start_block;
+    uint8_t byte_count = start_byte;
     
-    
-    //while strlen(url) >0 pull digits out and copy them into the array
-    while (url_position < len){
+    uint8_t block_buffer[16] = {};
+    memcpy(block_buffer, payload_head, 16);
+ 
+    //while strlen(payload) >0 pull digits out and copy them into the array
+    while (position < len){
         if (block_count %4 < 3) {
-            //copy url char into buffer position
-            memcpy (block_buffer+byte_count, url+url_position, 1);
+            //copy payload byte into buffer position
+            memcpy (block_buffer+byte_count, payload+position, 1);
             
             byte_count ++;
-            url_position ++;
+            position ++;
             
             if (byte_count == 16 ) {
                 //end of block
