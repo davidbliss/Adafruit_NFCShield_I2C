@@ -1218,10 +1218,10 @@ uint32_t Adafruit_NFCShield_I2C::configurePeerAsTarget() {
     if (! sendCommandCheckAck(pn532_packetbuffer, 38)){
 #ifdef PN532DEBUG
         Serial.println("failed to recieve send ACK");
-         return 0;
-#endif  
+#endif
+        return 0;
     }
-    delay(20);
+    delay(6000);
     Serial.print("___");
     // read data packet
     wirereaddata(pn532_packetbuffer, 18+6);
