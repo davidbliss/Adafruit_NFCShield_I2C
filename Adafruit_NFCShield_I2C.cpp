@@ -19,6 +19,14 @@
 
 	@section  HISTORY
 
+    v1.6 @thisispete - ported over the seedstudio SPI variations of the P2P connection - TG INIT AS TARGET etc to use I2C
+           ** Must Modify Wire.h and twi.h files to set their BUFFER_LENGTH to 64
+ 
+ 
+    v1.5 @thisispete - Modified write ndef long and mime file writing across multiple blocks 
+            ** not failsafe for payloads over the available card size
+            ** Must Modify Wire.h and twi.h files to set their BUFFER_LENGTH to 32
+ 
     v1.4d - David's modifications 
          - Added powerDown command
 
@@ -48,7 +56,7 @@
  #include "WProgram.h"
 #endif
 
-#include <Wire.h>
+#include "Wire.h"
 
 #include "Adafruit_NFCShield_I2C.h"
 
@@ -56,7 +64,7 @@ byte pn532ack[] = {0x00, 0x00, 0xFF, 0x00, 0xFF, 0x00};
 byte pn532response_firmwarevers[] = {0x00, 0xFF, 0x06, 0xFA, 0xD5, 0x03};
 
 // Uncomment these lines to enable debug output for PN532(I2C) and/or MIFARE related code
-// #define PN532DEBUG
+ #define PN532DEBUG
 // #define MIFAREDEBUG
 
 #define PN532_PACKBUFFSIZ 64
@@ -249,7 +257,7 @@ boolean Adafruit_NFCShield_I2C::sendCommandCheckAck(uint8_t *cmd, uint8_t cmdlen
       if (timer > timeout)  
         return false;
     }
-    delay(10);
+    delay(80);
   }
   
   #ifdef PN532DEBUG
@@ -387,6 +395,8 @@ boolean Adafruit_NFCShield_I2C::SAMConfig(void) {
   pn532_packetbuffer[0] = PN532_COMMAND_SAMCONFIGURATION;
   pn532_packetbuffer[1] = 0x01; // normal mode;
   pn532_packetbuffer[2] = 0x14; // timeout 50ms * 20 = 1 second
+//  pn532_packetbuffer[1] = 0x02; // card emulation mode;
+//  pn532_packetbuffer[2] = 0x00; // no timeout
   pn532_packetbuffer[3] = 0x01; // use IRQ pin!
   
   if (! sendCommandCheckAck(pn532_packetbuffer, 4))
@@ -502,6 +512,7 @@ boolean Adafruit_NFCShield_I2C::powerDown(uint32_t uiBlock) {
 
   return 0;
 }
+
 
 
 /***** Mifare Classic Functions ******/
@@ -1037,6 +1048,258 @@ uint8_t Adafruit_NFCShield_I2C::mifareultralight_ReadPage (uint8_t page, uint8_t
 
 
 
+
+/***** P2P helper Functions ******/
+
+
+uint32_t Adafruit_NFCShield_I2C::readMemoryBlock(uint8_t cardnumber /*1 or 2*/,uint8_t blockaddress /*0 to 63*/, uint8_t * block) {
+    pn532_packetbuffer[0] = PN532_COMMAND_INDATAEXCHANGE;
+    pn532_packetbuffer[1] = cardnumber;  // either card 1 or 2 (tested for card 1)
+    pn532_packetbuffer[2] = MIFARE_CMD_READ;
+    pn532_packetbuffer[3] = blockaddress; //This address can be 0-63 for MIFARE 1K card
+    
+    if (! sendCommandCheckAck(pn532_packetbuffer, 4))
+        return false;
+    
+    // read data packet
+    wirereaddata(pn532_packetbuffer, 18+6);
+    // check some basic stuff
+#ifdef PN532DEBUG
+    Serial.println("READ");
+#endif
+    for(uint8_t i=8;i<18+6;i++)
+    {
+        block[i-8] = pn532_packetbuffer[i];
+#ifdef PN532DEBUG
+        Serial.print(pn532_packetbuffer[i], HEX); Serial.print(" ");
+#endif
+    }
+    if((pn532_packetbuffer[6] == 0x41) && (pn532_packetbuffer[7] == 0x00))
+    {
+        return true; //read successful
+    }
+    else
+        
+    {
+        return false;
+    }
+    
+}
+
+//Do not write to Sector Trailer Block unless you know what you are doing.
+uint32_t Adafruit_NFCShield_I2C::writeMemoryBlock(uint8_t cardnumber /*1 or 2*/,uint8_t blockaddress /*0 to 63*/, uint8_t * block) {
+    pn532_packetbuffer[0] = PN532_COMMAND_INDATAEXCHANGE;
+    pn532_packetbuffer[1] = cardnumber;  // either card 1 or 2 (tested for card 1)
+    pn532_packetbuffer[2] = MIFARE_CMD_WRITE;
+    pn532_packetbuffer[3] = blockaddress;
+    
+    for(uint8_t byte=0; byte <16; byte++)
+    {
+        pn532_packetbuffer[4+byte] = block[byte];
+    }
+    
+    if (! sendCommandCheckAck(pn532_packetbuffer, 20))
+        return false;
+    // read data packet
+    wirereaddata(pn532_packetbuffer, 2+6);
+    
+#ifdef PN532DEBUG
+    // check some basic stuff
+    Serial.println("WRITE");
+    for(uint8_t i=0;i<2+6;i++)
+    {
+        Serial.print(pn532_packetbuffer[i], HEX); Serial.println(" ");
+    }
+#endif
+    
+    if((pn532_packetbuffer[6] == 0x41) && (pn532_packetbuffer[7] == 0x00))
+    {
+        return true; //write successful
+    }
+    else
+    {
+        return false;
+    }
+}
+
+uint32_t Adafruit_NFCShield_I2C::configurePeerAsInitiator(uint8_t baudrate /* Any number from 0-2. 0 for 106kbps or 1 for 201kbps or 2 for 424kbps */) {
+    
+    pn532_packetbuffer[0] = PN532_COMMAND_INJUMPFORDEP;
+    pn532_packetbuffer[1] = 0x01; //Active Mode
+    pn532_packetbuffer[2] = baudrate; // Use 1 or 2. //0 i.e 106kps is not supported yet
+    pn532_packetbuffer[3] = 0x01; //Indicates Optional Payload is present
+    
+    //Polling request payload
+    pn532_packetbuffer[4] = 0x00;
+    pn532_packetbuffer[5] = 0xFF;
+    pn532_packetbuffer[6] = 0xFF;
+    pn532_packetbuffer[7] = 0x00;
+    pn532_packetbuffer[8] = 0x00;
+    
+    if (! sendCommandCheckAck(pn532_packetbuffer, 9))
+        return false;
+    
+    // read data packet
+    wirereaddata(pn532_packetbuffer, 19+6);
+    
+#ifdef PN532DEBUG
+    Serial.println();
+    // check the response
+    Serial.println("PEER_INITIATOR");
+    for(uint8_t i=0;i<19+6;i++)
+    {
+        Serial.print(pn532_packetbuffer[i], HEX); Serial.print(" ");
+    }
+#endif
+    
+    return (pn532_packetbuffer[7] == 0x00); //No error
+    
+}
+
+uint32_t Adafruit_NFCShield_I2C::initiatorTxRx(char *DataOut,char *DataIn)
+{
+    pn532_packetbuffer[0] = PN532_COMMAND_INDATAEXCHANGE;
+    pn532_packetbuffer[1] = 0x01; //Target 01
+    
+    for(uint8_t iter=(2+0);iter<(2+16);iter++)
+    {
+        pn532_packetbuffer[iter] = DataOut[iter-2]; //pack the data to send to target
+    }
+    
+    if (! sendCommandCheckAck(pn532_packetbuffer, 18))
+        return false;
+    
+    // read data packet
+    wirereaddata(pn532_packetbuffer, 18+6);
+    
+#ifdef PN532DEBUG
+    Serial.println();
+    // check the response
+    Serial.println("INITIATOR_TXRX");
+    for(uint8_t i=0;i<18+6;i++)
+    {
+        Serial.print(pn532_packetbuffer[i], HEX); Serial.print(" ");
+    }
+#endif
+    
+    for(uint8_t iter=8;iter<(8+16);iter++)
+    {
+        DataIn[iter-8] = pn532_packetbuffer[iter]; //data received from target
+    }
+    
+    return (pn532_packetbuffer[7] == 0x00); //No error
+}
+
+uint32_t Adafruit_NFCShield_I2C::configurePeerAsTarget() {
+    
+    byte pbuffer[38] =      { PN532_COMMAND_TGINITASTARGET,
+        0x00,
+        0x08, 0x00, //SENS_RES
+        0x12, 0x34, 0x56, //NFCID1
+        0x60, //SEL_RES
+        
+        0x01, 0xFE, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, // NFCID2t
+        0xC0, 0xC1, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7, //PAD
+        0xFF, 0xFF, //System Code
+        
+        0xAA, 0x99, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, //NFCID3t: Change this to desired value
+        
+        0x00,  //Length of general bytes
+        0x00  //Length of historical bytes
+    };
+    
+
+    
+    for(uint8_t iter=0;iter<38;iter++)
+    {
+        pn532_packetbuffer[iter] = pbuffer[iter];
+    }
+    
+    if (! sendCommandCheckAck(pn532_packetbuffer, 38)){
+#ifdef PN532DEBUG
+        Serial.println("failed to recieve send ACK");
+         return 0;
+#endif  
+    }
+    delay(20);
+    Serial.print("___");
+    // read data packet
+    wirereaddata(pn532_packetbuffer, 18+6);
+    Serial.print("___");    
+#ifdef PN532DEBUG
+//    Serial.println();
+    // check some basic stuff
+    
+//    Serial.println("PEER_TARGET");
+//    for(uint8_t i=0;i<18+6;i++)
+//    {
+//        Serial.print(pn532_packetbuffer[i], HEX); Serial.println(" ");
+//    }
+#endif
+    
+    return (pn532_packetbuffer[23] == 0x00); //No error as it received all response
+}
+
+uint32_t Adafruit_NFCShield_I2C::targetTxRx(char *DataOut,char *DataIn)
+{
+    ///////////////////////////////////// Receiving from Initiator ///////////////////////////
+    pn532_packetbuffer[0] = PN532_COMMAND_TGGETDATA;
+    if (! sendCommandCheckAck(pn532_packetbuffer, 1))
+        return false;
+    
+    // read data packet
+    wirereaddata(pn532_packetbuffer, 18+6);
+    
+#ifdef PN532DEBUG
+    Serial.println();
+    // check the response
+    Serial.println("TARGET_RX");
+    for(uint8_t i=0;i<18+6;i++)
+    {
+        Serial.print(pn532_packetbuffer[i], HEX); Serial.print(" ");
+    }
+#endif
+    
+    for(uint8_t iter=8;iter<(8+16);iter++)
+    {
+        DataIn[iter-8] = pn532_packetbuffer[iter]; //data received from initiator
+    }
+    
+    ///////////////////////////////////// Sending to Initiator ///////////////////////////
+    if(pn532_packetbuffer[7] == 0x00) //If no errors in receiving, send data.
+    {
+        pn532_packetbuffer[0] = PN532_COMMAND_TGSETDATA;
+        for(uint8_t iter=(1+0);iter<(1+16);iter++)
+        {
+            pn532_packetbuffer[iter] = DataOut[iter-1]; //pack the data to send to target
+        }
+        
+        if (! sendCommandCheckAck(pn532_packetbuffer, 17))
+            return false;
+        
+        // read data packet
+        wirereaddata(pn532_packetbuffer, 2+6);
+        
+#ifdef PN532DEBUG
+        Serial.println();
+        // check the response
+        Serial.println("TARGET_TX");
+        for(uint8_t i=0;i<2+6;i++)
+        {
+            Serial.print(pn532_packetbuffer[i], HEX); Serial.print(" ");
+        }
+#endif
+        
+        return (pn532_packetbuffer[7] == 0x00); //No error
+    }
+    
+}
+
+
+
+
+
+
 /************** high level I2C */
 
 
@@ -1083,7 +1346,7 @@ uint8_t Adafruit_NFCShield_I2C::wirereadstatus(void) {
 void Adafruit_NFCShield_I2C::wirereaddata(uint8_t* buff, uint8_t n) {
   uint16_t timer = 0;
   
-  delay(2); 
+  delay(2);
 
 #ifdef PN532DEBUG
   Serial.print("Reading: ");
@@ -1124,6 +1387,7 @@ void Adafruit_NFCShield_I2C::wiresendcommand(uint8_t* cmd, uint8_t cmdlen) {
   
 #ifdef PN532DEBUG
   Serial.print("\nSending: ");
+    Serial.print(cmdlen);
 #endif
 
   delay(2);     // or whatever the delay is for waking up the board
@@ -1154,14 +1418,12 @@ void Adafruit_NFCShield_I2C::wiresendcommand(uint8_t* cmd, uint8_t cmdlen) {
    wiresend(cmd[i]);
    checksum += cmd[i];
 #ifdef PN532DEBUG
-   Serial.print(" 0x"); Serial.print(cmd[i], HEX);
+   Serial.print(" _0x"); Serial.print(cmd[i], HEX);
 #endif
   }
-  
+
   wiresend(~checksum);
-  wiresend(PN532_POSTAMBLE);
-  
-  // I2C STOP
+  wiresend(PN532_POSTAMBLE);  // I2C STOP
   Wire.endTransmission();
 
 #ifdef PN532DEBUG

@@ -17,6 +17,16 @@
 
 	@section  HISTORY
 
+    v1.6 @thisispete - ported over the seedstudio SPI variations of the P2P connection - TG INIT AS TARGET etc to use I2C
+        ** Must Modify Wire.h and twi.h files to set their BUFFER_LENGTH to 64
+ 
+    v1.5 @thisispete - Modified write ndef long and mime file writing across multiple blocks
+        ** not failsafe for payloads over the available card size
+        ** Must Modify Wire.h and twi.h files to set their BUFFER_LENGTH to 32
+ 
+    v1.4d - David's modifications
+          - Added powerDown command
+ 
     v1.3  - Modified to work with I2C
 	
 	v1.1  - Added full command list
@@ -32,7 +42,7 @@
  #include "WProgram.h"
 #endif
 
-#include <Wire.h>
+#include "Wire.h"
 
 #define PN532_PREAMBLE                      (0x00)
 #define PN532_STARTCODE1                    (0x00)
@@ -54,6 +64,8 @@
 #define PN532_COMMAND_SAMCONFIGURATION      (0x14)
 #define PN532_COMMAND_POWERDOWN             (0x16)
 #define PN532_COMMAND_RFCONFIGURATION       (0x32)
+#define PN532_COMMAND_INDATAEXCHANGE        (0x40)
+#define PN532_COMMAND_INLISTPASSIVETARGET   (0x4A)
 #define PN532_COMMAND_RFREGULATIONTEST      (0x58)
 #define PN532_COMMAND_INJUMPFORDEP          (0x56)
 #define PN532_COMMAND_INJUMPFORPSL          (0x46)
@@ -181,6 +193,15 @@ class Adafruit_NFCShield_I2C{
   // Help functions to display formatted text
   static void PrintHex(const byte * data, const uint32_t numBytes);
   static void PrintHexChar(const byte * pbtData, const uint32_t numBytes);
+  
+  uint32_t readMemoryBlock(uint8_t cardnumber /*1 or 2*/,uint8_t blockaddress /*0 to 63*/, uint8_t * block);
+  uint32_t writeMemoryBlock(uint8_t cardnumber /*1 or 2*/,uint8_t blockaddress /*0 to 63*/, uint8_t * block);
+    
+  //P2P functions
+  uint32_t configurePeerAsInitiator(uint8_t baudrate /* Any number from 0-2. 0 for 106kbps or 1 for 201kbps or 2 for 424kbps */); //106kps is not supported
+  uint32_t configurePeerAsTarget();
+  uint32_t initiatorTxRx(char* DataOut,char* DataIn);
+  uint32_t targetTxRx(char* DataOut,char* DataIn);
 
  private:
   uint8_t _irq, _reset;
